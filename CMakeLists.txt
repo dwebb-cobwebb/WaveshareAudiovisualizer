@@ -72,6 +72,9 @@ add_executable(${PROJECT_NAME}
     src/ui/ui_common.c
     src/ui/mode_producer.c
     src/ui/mode_vibe.c
+    src/ui/assets/vu_face.c
+    src/ui/assets/vu_needle.c
+    src/ui/assets/vu_hub.c
 )
 
 # Generate qspi.pio.h from the PIO assembly source
