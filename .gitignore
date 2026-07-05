@@ -1,0 +1,17 @@
+/build/
+*.uf2
+*.elf
+*.bin
+*.dis
+*.hex
+*.map
+.DS_Store
+# Generated from lib/lvgl/lv_conf_template.h by scripts/setup_deps
+/lv_conf.h
+# Vendored dependencies pulled by setup (kept out of tree until fetched)
+/lib/lvgl/
+/lib/cmsis-dsp/
+/lib/tinyusb/
+/vendor/waveshare-demo/
+# Waveshare reference demo (downloadable; used as driver reference only)
+/RP2350-Touch-LCD-3.49-LVGL/
