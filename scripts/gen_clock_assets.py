@@ -19,19 +19,19 @@ SS = 3
 
 # Digit geometry (1x). A digit cell is DIGIT_W x DIGIT_H; segments are
 # THICK wide with small inter-segment gaps and mitered (pointed) ends.
-DIGIT_W = 76
-DIGIT_H = 128
-THICK   = 15
+DIGIT_W = 96
+DIGIT_H = 164
+THICK   = 18
 GAP     = 2
 PAD     = 8          # glow bleed padding baked around each segment image
 
 SEG_LEN_H = DIGIT_W - 2 * (THICK // 2) - 2 * GAP          # horizontal length
 SEG_LEN_V = (DIGIT_H - 3 * THICK) // 2 + THICK - 2 * GAP  # vertical length
-DOT_D     = 18
+DOT_D     = 22
 
-LED_CORE = (255, 120, 80)
-LED_BODY = (242, 50, 24)
-LED_GLOW = (255, 40, 16)
+LED_CORE = (150, 205, 255)
+LED_BODY = (28, 110, 250)
+LED_GLOW = (10, 80, 255)
 
 
 def hexagon(d, x0, y0, length, thick, horizontal, fill):

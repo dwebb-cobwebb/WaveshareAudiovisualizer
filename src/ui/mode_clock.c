@@ -19,8 +19,12 @@
 #define N_DIGITS   4
 #define GHOST_OPA  16    // unlit-segment opacity
 #define Y0         4     // top of the digit row
-#define DIGIT_GAP  12
+#define DIGIT_GAP  10
 #define COLON_W    34
+
+// Time occupies the left area; the date stacks in a column on the right.
+#define DATE_COL_W  116
+#define TIME_AREA_W (AV_DISP_W - DATE_COL_W)
 
 // Segment bit order: A B C D E F G (bit 0..6)
 #define SA 0x01
@@ -62,7 +66,7 @@ static const seg_pos_t SEG_POS[7] = {
 
 static lv_obj_t *s_seg[N_DIGITS][7];
 static lv_obj_t *s_dot_top, *s_dot_bot;
-static lv_obj_t *s_date_lbl;
+static lv_obj_t *s_day_lbl, *s_num_lbl, *s_mon_lbl;
 static uint8_t s_shown[N_DIGITS] = { 0xFF, 0xFF, 0xFF, 0xFF };
 static int s_prev_sec = -1;
 static int s_prev_yday = -1;
@@ -103,7 +107,7 @@ lv_obj_t *mode_clock_create(lv_obj_t *parent) {
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
     int total = 4 * SEG_DIGIT_W + 3 * DIGIT_GAP + COLON_W + 2 * DIGIT_GAP;
-    int x = (AV_DISP_W - total) / 2;
+    int x = (TIME_AREA_W - total) / 2;
 
     make_digit(root, 0, x); x += SEG_DIGIT_W + DIGIT_GAP;
     make_digit(root, 1, x); x += SEG_DIGIT_W + DIGIT_GAP;
@@ -122,13 +126,25 @@ lv_obj_t *mode_clock_create(lv_obj_t *parent) {
     make_digit(root, 2, x); x += SEG_DIGIT_W + DIGIT_GAP;
     make_digit(root, 3, x);
 
-    s_date_lbl = lv_label_create(root);
-    lv_obj_set_style_text_font(s_date_lbl, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(s_date_lbl, lv_color_make(150, 146, 132), 0);
-    lv_obj_set_style_text_letter_space(s_date_lbl, 3, 0);
-    lv_label_set_text(s_date_lbl, "");
-    lv_obj_align(s_date_lbl, LV_ALIGN_BOTTOM_MID, 0, -4);
-    lv_obj_clear_flag(s_date_lbl, LV_OBJ_FLAG_CLICKABLE);
+    // Date column: DAY / day-number / MONTH stacked on the right.
+    lv_color_t dim = lv_color_make(150, 146, 132);
+    struct { lv_obj_t **lbl; const lv_font_t *font; int y; } col[3] = {
+        { &s_day_lbl, &lv_font_montserrat_20, 30 },
+        { &s_num_lbl, &lv_font_montserrat_32, 66 },
+        { &s_mon_lbl, &lv_font_montserrat_20, 116 },
+    };
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *l = lv_label_create(root);
+        lv_obj_set_style_text_font(l, col[i].font, 0);
+        lv_obj_set_style_text_color(l, dim, 0);
+        lv_obj_set_style_text_letter_space(l, 2, 0);
+        lv_obj_set_width(l, DATE_COL_W);
+        lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(l, "");
+        lv_obj_set_pos(l, TIME_AREA_W, col[i].y);
+        lv_obj_clear_flag(l, LV_OBJ_FLAG_CLICKABLE);
+        *col[i].lbl = l;
+    }
 
     return root;
 }
@@ -144,8 +160,9 @@ void mode_clock_update(const VisualizerState *vs) {
             for (int i = 0; i < N_DIGITS; i++) set_glyph(i, GLYPH_DASH);
             lv_obj_set_style_img_opa(s_dot_top, GHOST_OPA, 0);
             lv_obj_set_style_img_opa(s_dot_bot, GHOST_OPA, 0);
-            lv_label_set_text(s_date_lbl, "set time: scripts/set_clock.ps1");
-            lv_obj_align(s_date_lbl, LV_ALIGN_BOTTOM_MID, 0, -4);
+            lv_label_set_text(s_day_lbl, "SET");
+            lv_label_set_text(s_num_lbl, "?");
+            lv_label_set_text(s_mon_lbl, "TIME");
             s_prev_sec = -1;
             s_prev_yday = -1;
         }
@@ -168,10 +185,10 @@ void mode_clock_update(const VisualizerState *vs) {
 
     if (tm.tm_yday != s_prev_yday) {
         s_prev_yday = tm.tm_yday;
-        char buf[20];
-        snprintf(buf, sizeof(buf), "%s %d %s",
-                 DAYS[tm.tm_wday % 7], tm.tm_mday, MONTHS[tm.tm_mon % 12]);
-        lv_label_set_text(s_date_lbl, buf);
-        lv_obj_align(s_date_lbl, LV_ALIGN_BOTTOM_MID, 0, -4);
+        char buf[8];
+        lv_label_set_text(s_day_lbl, DAYS[tm.tm_wday % 7]);
+        snprintf(buf, sizeof(buf), "%d", tm.tm_mday);
+        lv_label_set_text(s_num_lbl, buf);
+        lv_label_set_text(s_mon_lbl, MONTHS[tm.tm_mon % 12]);
     }
 }
