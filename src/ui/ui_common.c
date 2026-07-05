@@ -2,6 +2,7 @@
 #include "ui/mode_producer.h"
 #include "ui/mode_vibe.h"
 #include "ui/mode_lufs.h"
+#include "ui/mode_tunnel.h"
 #include "ui/mode_clock.h"
 #include "dsp/vis_state.h"
 #include "usb/usb_audio.h"
@@ -120,6 +121,7 @@ void ui_init(lv_indev_t *indev) {
     s_mode_obj[AV_MODE_PRODUCER] = mode_producer_create(scr);
     s_mode_obj[AV_MODE_VIBE]     = mode_vibe_create(scr);
     s_mode_obj[AV_MODE_LUFS]     = mode_lufs_create(scr);
+    s_mode_obj[AV_MODE_TUNNEL]   = mode_tunnel_create(scr);
     s_mode_obj[AV_MODE_CLOCK]    = mode_clock_create(scr);
 
     // Touch: see gesture_cb for the swipe map. Handlers go on the screen AND
@@ -172,6 +174,7 @@ void ui_update(void) {
         case AV_MODE_PRODUCER: mode_producer_update(&vs); break;
         case AV_MODE_VIBE:     mode_vibe_update(&vs);     break;
         case AV_MODE_LUFS:     mode_lufs_update(&vs);     break;
+        case AV_MODE_TUNNEL:   mode_tunnel_update(&vs);   break;
         case AV_MODE_CLOCK:    mode_clock_update(&vs);    break;
         default: break;
     }

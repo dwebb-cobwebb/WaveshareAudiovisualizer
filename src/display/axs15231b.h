@@ -36,6 +36,11 @@ void axs_blit_pio_landscape(const uint16_t *px);
 
 // Async variant: kicks a DMA transfer and returns immediately.
 void axs_blit_async(const uint16_t *px, uint32_t count);
+
+// Raw full-panel pixel-stream session (portrait scan order, 2 B/px pushed by
+// the caller into the QSPI PIO FIFO). For on-the-fly renderers.
+void axs_stream_begin(void);
+void axs_stream_end(void);
 bool axs_blit_done(void);
 
 // Backlight 0..255 (PWM).

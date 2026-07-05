@@ -205,6 +205,22 @@ void axs_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
 }
 
 // ---------------------------------------------------------------------------
+// Raw pixel streaming — full-panel RAMWR session for renderers that generate
+// pixels on the fly (see mode_tunnel.c). Between begin() and end() the caller
+// pushes 2 bytes per pixel with axs_stream_px(), in portrait scan order.
+// ---------------------------------------------------------------------------
+void axs_stream_begin(void) {
+    axs_set_window(0, 0, AV_DISP_NATIVE_W - 1, AV_DISP_NATIVE_H - 1);
+    QSPI_Select(qspi);
+    QSPI_Pixel_Write(qspi, 0x2C);
+}
+
+void axs_stream_end(void) {
+    while (!pio_sm_is_tx_fifo_empty(qspi.pio, qspi.sm)) { tight_loop_contents(); }
+    QSPI_Deselect(qspi);
+}
+
+// ---------------------------------------------------------------------------
 // Pixel blit — RAMWR + DMA
 // ---------------------------------------------------------------------------
 void axs_blit_async(const uint16_t *px, uint32_t count) {
