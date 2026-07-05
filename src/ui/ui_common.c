@@ -1,8 +1,11 @@
 #include "ui/ui_common.h"
 #include "ui/mode_producer.h"
 #include "ui/mode_vibe.h"
+#include "ui/mode_lufs.h"
 #include "dsp/vis_state.h"
 #include "usb/usb_audio.h"
+#include "display/axs15231b.h"
+#include "config.h"
 #include "tusb.h"
 
 static lv_obj_t *s_mode_obj[AV_MODE_COUNT];
@@ -10,6 +13,21 @@ static AppMode   s_mode = AV_MODE_PRODUCER;
 static lv_obj_t *s_usb_label;
 static lv_obj_t *s_status_label;
 static bool      s_streaming = false;
+
+// Display sleep: the panel backlight can be fully blanked in software while
+// the touch controller stays alive to wake it. Sleeps automatically after
+// AV_DISPLAY_TIMEOUT_MS without streaming, wakes automatically when audio
+// starts; swipe DOWN sleeps immediately, any touch wakes.
+static bool     s_display_on = true;
+static bool     s_was_streaming = false;
+static uint32_t s_last_active_ms = 0;
+
+static void display_set(bool on) {
+    if (on == s_display_on) return;
+    s_display_on = on;
+    axs_backlight(on ? AV_BACKLIGHT_LEVEL : 0);
+    if (on) s_last_active_ms = lv_tick_get();
+}
 
 static void apply_visibility(void) {
     for (int i = 0; i < AV_MODE_COUNT; i++) {
@@ -38,18 +56,34 @@ static void gesture_cb(lv_event_t *e) {
     (void)e;
     lv_indev_t *indev = lv_indev_get_act();
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    if (!s_display_on) return;   // asleep: pressed_cb handles the wake
     if (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) {
         // Swallow the rest of this press: without this, releasing the finger
         // after a swipe also fires CLICKED, which switches the mode straight
         // back.
         lv_indev_wait_release(indev);
         ui_set_mode((AppMode)(s_mode + (dir == LV_DIR_LEFT ? 1 : -1)));
+    } else if (dir == LV_DIR_BOTTOM) {
+        // Swipe down: sleep the display.
+        lv_indev_wait_release(indev);
+        display_set(false);
     }
 }
 
 static void tap_cb(lv_event_t *e) {
     (void)e;
+    if (!s_display_on) return;   // wake already handled at press
     ui_set_mode((AppMode)(s_mode + 1));
+}
+
+// Fires on finger-down anywhere: if the display is asleep, wake it and
+// swallow the press so it doesn't also switch modes.
+static void pressed_cb(lv_event_t *e) {
+    (void)e;
+    if (!s_display_on) {
+        display_set(true);
+        lv_indev_wait_release(lv_indev_get_act());
+    }
 }
 
 void ui_init(lv_indev_t *indev) {
@@ -80,16 +114,20 @@ void ui_init(lv_indev_t *indev) {
     // Visualizer modes (hidden until streaming).
     s_mode_obj[AV_MODE_PRODUCER] = mode_producer_create(scr);
     s_mode_obj[AV_MODE_VIBE]     = mode_vibe_create(scr);
+    s_mode_obj[AV_MODE_LUFS]     = mode_lufs_create(scr);
 
     // Touch: swipe switches modes, tap cycles. Handlers go on the screen AND
     // each full-screen mode panel (the visible panel receives the input).
     lv_obj_add_event_cb(scr, gesture_cb, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(scr, tap_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(scr, pressed_cb, LV_EVENT_PRESSED, NULL);
     for (int i = 0; i < AV_MODE_COUNT; i++) {
         lv_obj_add_event_cb(s_mode_obj[i], gesture_cb, LV_EVENT_GESTURE, NULL);
         lv_obj_add_event_cb(s_mode_obj[i], tap_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_add_event_cb(s_mode_obj[i], pressed_cb, LV_EVENT_PRESSED, NULL);
     }
 
+    s_last_active_ms = lv_tick_get();
     apply_visibility();
 }
 
@@ -106,13 +144,28 @@ void ui_update(void) {
         s_streaming = streaming;
         apply_visibility();
     }
-    if (!s_streaming) return;
+
+    // Display sleep management. A NEW stream wakes the panel (edge-triggered,
+    // so a manual swipe-down sleep sticks even while audio keeps playing);
+    // while awake, streaming holds off the idle timer, and without streaming
+    // the panel dozes off after the timeout.
+    if (streaming && !s_was_streaming) display_set(true);
+    s_was_streaming = streaming;
+    if (s_display_on) {
+        if (streaming) s_last_active_ms = lv_tick_get();
+        else if (lv_tick_elaps(s_last_active_ms) > AV_DISPLAY_TIMEOUT_MS) {
+            display_set(false);
+        }
+    }
+
+    if (!s_streaming || !s_display_on) return;
 
     VisualizerState vs;
     vis_acquire(&vs);
     switch (s_mode) {
         case AV_MODE_PRODUCER: mode_producer_update(&vs); break;
         case AV_MODE_VIBE:     mode_vibe_update(&vs);     break;
+        case AV_MODE_LUFS:     mode_lufs_update(&vs);     break;
         default: break;
     }
 }

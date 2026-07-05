@@ -43,6 +43,12 @@
 #define AV_METER_AREA_W     120
 #define AV_SPECTRUM_W       (AV_DISP_W - AV_METER_AREA_W)
 
+// Backlight brightness when awake (0..255 into axs_backlight).
+#define AV_BACKLIGHT_LEVEL      200
+// Display auto-sleep after this long without an active audio stream.
+// Swipe down sleeps immediately; touch or a new stream wakes.
+#define AV_DISPLAY_TIMEOUT_MS   (5u * 60u * 1000u)
+
 // ---------------------------------------------------------------------------
 // Pin map — Waveshare RP2350-Touch-LCD-3.49 (from Waveshare LVGL demo)
 // ---------------------------------------------------------------------------

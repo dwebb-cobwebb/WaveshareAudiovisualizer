@@ -19,6 +19,13 @@ typedef struct {
 
     float correlation;           // -1..+1 stereo phase correlation
 
+    // EBU R128 loudness (see dsp/loudness.h). <= -120 means silence/unset.
+    float lufs_m;                // momentary (400 ms), LUFS
+    float lufs_s;                // short-term (3 s), LUFS
+    float lufs_i;                // integrated (gated), LUFS
+    float lra;                   // loudness range, LU
+    float tp_db;                 // max true peak since reset, dBTP
+
     bool  clip_l;                // clip-hold latched (>= 0 dBFS within hold window)
     bool  clip_r;
 

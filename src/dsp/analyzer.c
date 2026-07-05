@@ -1,4 +1,5 @@
 #include "dsp/analyzer.h"
+#include "dsp/loudness.h"
 #include "app.h"
 
 #include <math.h>
@@ -93,6 +94,7 @@ void analyzer_init(void) {
     arm_rfft_fast_init_f32(&s_fft, AV_FFT_SIZE);
     build_window();
     build_bands();
+    loudness_init();
     memset(s_band_smooth, 0, sizeof(s_band_smooth));
     memset(s_band_peak, 0, sizeof(s_band_peak));
     memset(s_band_peak_hold, 0, sizeof(s_band_peak_hold));
@@ -116,6 +118,10 @@ bool analyzer_process(AudioRing *ring) {
 
     ring_peek(ring, s_stereo, AV_FFT_SIZE);
     ring_advance(ring, HOP);
+
+    // Loudness runs on the HOP frames being consumed this iteration, so with
+    // 50% FFT overlap every sample is measured exactly once.
+    loudness_process(s_stereo, HOP);
 
     // Time-domain stats + windowed mono mix.
     float sum_l2 = 0.f, sum_r2 = 0.f, sum_lr = 0.f;
@@ -177,6 +183,14 @@ bool analyzer_process(AudioRing *ring) {
 
     float denom = sqrtf(sum_l2 * sum_r2);
     vs.correlation = (denom > 1e-9f) ? (sum_lr / denom) : 0.0f;
+
+    loudness_snapshot_t lu;
+    loudness_get(&lu);
+    vs.lufs_m = lu.lufs_m;
+    vs.lufs_s = lu.lufs_s;
+    vs.lufs_i = lu.lufs_i;
+    vs.lra    = lu.lra;
+    vs.tp_db  = lu.tp_db;
 
     if (peak_l >= CLIP_THRESH) s_clip_hold_l = hold_frames;
     else if (s_clip_hold_l > 0) s_clip_hold_l--;

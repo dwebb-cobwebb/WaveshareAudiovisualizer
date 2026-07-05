@@ -131,7 +131,7 @@ void axs_init(void) {
 
     // Backlight
     backlight_init();
-    axs_backlight(200);
+    axs_backlight(AV_BACKLIGHT_LEVEL);
 }
 
 // ---------------------------------------------------------------------------
