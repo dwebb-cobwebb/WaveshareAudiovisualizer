@@ -9,7 +9,6 @@ static lv_obj_t *s_mode_obj[AV_MODE_COUNT];
 static AppMode   s_mode = AV_MODE_PRODUCER;
 static lv_obj_t *s_usb_label;
 static lv_obj_t *s_status_label;
-static lv_obj_t *s_status_label2;
 static bool      s_streaming = false;
 
 static void apply_visibility(void) {
@@ -22,11 +21,9 @@ static void apply_visibility(void) {
     if (s_streaming) {
         lv_obj_add_flag(s_usb_label, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_status_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_status_label2, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_clear_flag(s_usb_label, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_status_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(s_status_label2, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -79,13 +76,6 @@ void ui_init(lv_indev_t *indev) {
     lv_label_set_text(s_status_label, "boot");
     lv_obj_align(s_status_label, LV_ALIGN_TOP_LEFT, 4, 4);
 
-    s_status_label2 = lv_label_create(scr);
-    lv_obj_set_style_text_font(s_status_label2, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_status_label2, lv_color_make(120, 120, 120), 0);
-    lv_label_set_long_mode(s_status_label2, LV_LABEL_LONG_CLIP);
-    lv_obj_set_width(s_status_label2, AV_DISP_W - 8);
-    lv_label_set_text(s_status_label2, "");
-    lv_obj_align(s_status_label2, LV_ALIGN_TOP_LEFT, 4, 26);
 
     // Visualizer modes (hidden until streaming).
     s_mode_obj[AV_MODE_PRODUCER] = mode_producer_create(scr);
@@ -109,11 +99,6 @@ void ui_status(const char *msg) {
     lv_refr_now(NULL);   // force synchronous flush so it shows even if the next step blocks
 }
 
-void ui_status2(const char *msg) {
-    if (!s_status_label2 || s_streaming) return;
-    lv_label_set_text(s_status_label2, msg);
-    lv_refr_now(NULL);
-}
 
 void ui_update(void) {
     bool streaming = usb_audio_streaming();

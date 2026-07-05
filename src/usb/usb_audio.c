@@ -22,9 +22,9 @@
 // Hand-rolled UAC 1.0 class driver.
 //
 // TinyUSB's built-in audio class only speaks UAC2. We need UAC1 so Windows
-// binds usbaudio.sys (which streams full-speed devices without the
-// GET_ISOCH_PIPE_TRANSFER_PATH_DELAYS query that usbaudio2.sys demands and
-// this host rejects). This driver is registered with the device stack via
+// binds usbaudio.sys: usbaudio2.sys issues GET_ISOCH_PIPE_TRANSFER_PATH_DELAYS
+// for full-speed devices, which some host stacks answer NOT_SUPPORTED — the
+// stream then never starts. This driver registers with the device stack via
 // usbd_app_driver_get_cb() and implements just enough of UAC1 for a stereo
 // 48 kHz / 16-bit sink: the streaming interface's alt-setting switch, the
 // feature-unit mute/volume controls, the endpoint sampling-frequency control,
@@ -36,9 +36,6 @@
 // ---------------------------------------------------------------------------
 enum {
     UAC1_REQ_SET_CUR = 0x01,
-    UAC1_REQ_SET_MIN = 0x02,
-    UAC1_REQ_SET_MAX = 0x03,
-    UAC1_REQ_SET_RES = 0x04,
     UAC1_REQ_GET_CUR = 0x81,
     UAC1_REQ_GET_MIN = 0x82,
     UAC1_REQ_GET_MAX = 0x83,
@@ -53,7 +50,6 @@ enum {
 };
 
 // Volume range, 1/256 dB (S16). 0 dB .. -60 dB, 1 dB step.
-#define VOL_CUR   0x0000
 #define VOL_MIN   ((int16_t)0xC400)   // -60 dB
 #define VOL_MAX   0x0000
 #define VOL_RES   0x0100              //  +1 dB
@@ -65,14 +61,10 @@ static volatile bool s_streaming = false;
 static uint8_t  s_alt = 0;
 static uint32_t s_sample_rate = AV_SAMPLE_RATE_HZ;
 static int8_t   s_mute   = 0;
-static int16_t  s_volume[AV_CHANNELS + 1] = { 0 };   // index 0 = master (unused), 1..N per channel
+static int16_t  s_volume[AV_CHANNELS + 1] = { 0 };   // index 0 = master, 1..N per channel
 
 // Endpoint descriptor for the iso OUT EP, filled at open() for iso alloc/activate.
 static tusb_desc_endpoint_t s_ep_out;
-
-// One packet's worth of iso OUT data (linear buffer for the DCD).
-CFG_TUSB_MEM_SECTION CFG_TUSB_MEM_ALIGN
-static uint8_t s_ep_buf[AUDIO_OUT_EP_SIZE];
 
 // Scratch for PCM->float conversion.
 #define MAX_FRAMES_PER_PKT  (48 + 1)
@@ -81,23 +73,13 @@ static float s_pkt_f32[MAX_FRAMES_PER_PKT * AV_CHANNELS];
 // Control-transfer scratch (holds a SET value while its DATA stage completes).
 static uint8_t s_ctrl_buf[4];
 
-// Diagnostic counters (unchanged public interface).
-static volatile uint32_t s_dbg_setitf   = 0;
-static volatile uint8_t  s_dbg_last_alt  = 0xFF;
-static volatile uint32_t s_dbg_rx_pkts  = 0;
-static volatile uint32_t s_dbg_rx_bytes = 0;
-static volatile uint32_t s_dbg_get_cnt  = 0;
-static volatile uint32_t s_dbg_set_cnt  = 0;
-static volatile uint32_t s_dbg_close_cnt = 0;
-static volatile uint32_t s_dbg_last_req = 0;
-static volatile uint8_t  s_open_diag = 0;   // DIAG: open()/iso_alloc outcome
-static volatile uint32_t s_dbg_alt1_cnt = 0;   // DIAG: SET_INTERFACE(alt=1) count
-static volatile uint32_t s_dbg_alt_hist = 0;   // DIAG: last 4 alts, 0xA0|alt each
-static volatile uint32_t s_dbg_inv_cnt  = 0;   // DIAG: control_xfer_cb SETUP invocations
-static volatile uint32_t s_dbg_last_std = 0;   // DIAG: last std-itf req: bmReqType<<24|bReq<<16|wValue
+// Receive counters for the idle status line.
+static volatile uint32_t s_rx_pkts  = 0;
+static volatile uint32_t s_rx_bytes = 0;
 
 static bool iso_poll_timer_cb(repeating_timer_t *t);
 static repeating_timer_t s_iso_poll_timer;
+static void iso_poll_direct(void);
 
 // ---------------------------------------------------------------------------
 // Public interface (called from main.c on core0)
@@ -109,8 +91,6 @@ void usb_audio_init(void) {
     // long the callback takes.
     add_repeating_timer_us(-500, iso_poll_timer_cb, NULL, &s_iso_poll_timer);
 }
-
-static void iso_poll_direct(void);
 
 // Iso packets land every 1 ms into a single hardware buffer, but the main
 // loop can be busy for ~12 ms in the display blit. Poll from a hardware
@@ -137,31 +117,18 @@ bool usb_audio_streaming(void) {
 }
 
 void usb_audio_debug(usb_audio_dbg_t *out) {
-    out->setitf_count = s_dbg_setitf;
-    out->last_alt     = s_dbg_last_alt;
-    out->rx_pkts      = s_dbg_rx_pkts;
-    out->rx_bytes     = s_dbg_rx_bytes;
-    out->get_count    = s_dbg_get_cnt;
-    out->set_count    = s_dbg_set_cnt;
-    out->close_count  = s_dbg_close_cnt;
-    out->last_req     = s_dbg_last_req;
-    out->open_diag    = s_open_diag;
-    out->alt1_count   = s_dbg_alt1_cnt;
-    out->alt_hist     = s_dbg_alt_hist;
-    out->inv_count    = s_dbg_inv_cnt;
-    out->last_std     = s_dbg_last_std;
+    out->rx_pkts  = s_rx_pkts;
+    out->rx_bytes = s_rx_bytes;
 }
 
 // ---------------------------------------------------------------------------
 // Iso OUT data path — DIRECT HARDWARE DRIVE.
 //
-// The DCD/TinyUSB transfer path produced zero completions despite a provably
-// correct endpoint setup (live-register verified: enabled, iso, armed, DATA0,
-// no SIE errors). To eliminate every remaining software layer, the endpoint
-// buffer is driven straight from application code: arm the dpram buffer
-// control ourselves and poll for FULL in usb_audio_task(). No usbd_edpt_xfer,
-// no interrupt dependency. If even this receives nothing, the firmware is
-// exonerated and the failure is silicon (RP2350-E12 family) or host-side.
+// The DCD/TinyUSB transfer path delivers zero completions on this silicon
+// despite a provably correct endpoint setup (RP2350-E12 family: USB status
+// signals lost between SIE and CPU). The endpoint buffer is therefore driven
+// straight from application code: arm the dpram buffer control ourselves and
+// poll for FULL — no usbd_edpt_xfer, no interrupt dependency.
 // ---------------------------------------------------------------------------
 #define BUFC_LEN_MASK   0x03FFu
 #define BUFC_AVAIL      (1u << 10)
@@ -175,28 +142,26 @@ void usb_audio_debug(usb_audio_dbg_t *out) {
 #define EP1_OUT_CTRL    (usb_dpram->ep_ctrl[0].out)
 #define EP1_OUT_BUFC    (usb_dpram->ep_buf_ctrl[1].out)
 
-static volatile uint32_t s_dbg_arm_cnt = 0;   // DIAG: direct arms issued
-
-// Arm buffer 0 for one 192-byte DATA0 iso packet. Respects the RP2040/RP2350
-// concurrent-access rule: write everything except AVAILABLE first, delay >=12
-// sys-clk cycles, then set AVAILABLE.
+// Arm buffer 0 for one 192-byte DATA0 iso packet (full-speed iso is always
+// DATA0). Respects the RP2040/RP2350 concurrent-access rule: write everything
+// except AVAILABLE first, delay >=12 sys-clk cycles, then set AVAILABLE.
 static void iso_arm_direct(void) {
     uint32_t v = AUDIO_OUT_EP_SIZE | BUFC_LAST | BUFC_RESET_SEL;   // PID=DATA0
     EP1_OUT_BUFC = v;
     busy_wait_at_least_cycles(12);
     EP1_OUT_BUFC = v | BUFC_AVAIL;
-    s_dbg_arm_cnt++;
 }
 
-// Poll for a landed packet; consume and re-arm. Called from usb_audio_task().
+// Poll for a landed packet; convert to float, push to the cross-core ring,
+// re-arm. Runs in timer-IRQ context.
 static void iso_poll_direct(void) {
     if (!s_streaming) return;
     uint32_t v = EP1_OUT_BUFC;
     if (!(v & BUFC_FULL)) return;
 
     uint32_t n = v & BUFC_LEN_MASK;
-    s_dbg_rx_pkts++;
-    s_dbg_rx_bytes = n;
+    s_rx_pkts++;
+    s_rx_bytes = n;
 
     // Data buffer address comes from the EP control register's dpram offset.
     const uint8_t *buf = (const uint8_t *)usb_dpram + (EP1_OUT_CTRL & 0xFFFFu);
@@ -259,9 +224,7 @@ static uint16_t ac_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf,
     s_ep_out.wMaxPacketSize   = AUDIO_OUT_EP_SIZE;
     s_ep_out.bInterval        = 1;
 
-    bool al = usbd_edpt_iso_alloc(rhport, EPNUM_AUDIO_OUT, AUDIO_OUT_EP_SIZE);
-    // DIAG: 0x10 = open ran & claimed, 0x20 = iso_alloc ok (folded into cl=).
-    s_open_diag = 0x10 | (al ? 0x20 : 0);
+    usbd_edpt_iso_alloc(rhport, EPNUM_AUDIO_OUT, AUDIO_OUT_EP_SIZE);
 
     return AUDIO_FUNC_DESC_LEN;
 }
@@ -352,15 +315,8 @@ static bool ac_control_xfer(uint8_t rhport, uint8_t stage,
     uint8_t const rcpt = request->bmRequestType_bit.recipient;
     uint8_t const type = request->bmRequestType_bit.type;
 
-    if (stage == CONTROL_STAGE_SETUP) s_dbg_inv_cnt++;   // DIAG: every SETUP seen
-
     // ---- Standard interface requests: SET/GET_INTERFACE (alt-setting) ----
     if (type == TUSB_REQ_TYPE_STANDARD && rcpt == TUSB_REQ_RCPT_INTERFACE) {
-        if (stage == CONTROL_STAGE_SETUP) {
-            s_dbg_last_std = ((uint32_t)request->bmRequestType << 24) |
-                             ((uint32_t)request->bRequest << 16) |
-                             tu_le16toh(request->wValue);
-        }
         uint8_t const itf = TU_U16_LOW(request->wIndex);
         if (itf != ITF_NUM_AUDIO_STREAMING) return false;
 
@@ -368,13 +324,9 @@ static bool ac_control_xfer(uint8_t rhport, uint8_t stage,
             if (stage != CONTROL_STAGE_SETUP) return true;
             uint8_t const alt = (uint8_t)request->wValue;
             s_alt = alt;
-            s_dbg_setitf++;
-            s_dbg_last_alt = alt;
-            s_dbg_alt_hist = (s_dbg_alt_hist << 8) | (0xA0u | (alt & 0x0Fu));
-            if (alt == 1) s_dbg_alt1_cnt++;
 
             if (alt == 1) {
-                bool a = usbd_edpt_iso_activate(rhport, &s_ep_out);
+                usbd_edpt_iso_activate(rhport, &s_ep_out);
                 // Keep the DCD's per-buffer interrupt away from this EP —
                 // completions are consumed by polling (iso_poll_direct), and
                 // an unexpected IRQ would make the DCD process a transfer it
@@ -382,13 +334,9 @@ static bool ac_control_xfer(uint8_t rhport, uint8_t stage,
                 EP1_OUT_CTRL &= ~(1u << 29);   // EP_CTRL_INTERRUPT_PER_BUFFER
                 s_streaming = true;
                 iso_arm_direct();
-                // DIAG: cl= 0x30 open/alloc | 0x01 activate ok | 0x02 armed.
-                s_dbg_close_cnt = (uint32_t)(s_open_diag | (a ? 0x01 : 0) | 0x02);
             } else {
                 usbd_edpt_close(rhport, EPNUM_AUDIO_OUT);
                 s_streaming = false;
-                // NOTE: don't touch s_dbg_close_cnt here — cl= carries the
-                // alt=1 arm diagnostic and must stay stable after teardown.
             }
             return tud_control_status(rhport, request);
         }
@@ -401,12 +349,6 @@ static bool ac_control_xfer(uint8_t rhport, uint8_t stage,
 
     // ---- Class-specific requests: feature unit (itf) / sample freq (ep) ----
     if (type == TUSB_REQ_TYPE_CLASS) {
-        if (stage == CONTROL_STAGE_SETUP) {
-            s_dbg_last_req = ((uint32_t)TU_U16_HIGH(request->wIndex) << 16) |
-                             ((uint32_t)TU_U16_HIGH(request->wValue) << 8) |
-                             request->bRequest;
-            if (request->bRequest & 0x80) s_dbg_get_cnt++; else s_dbg_set_cnt++;
-        }
         if (rcpt == TUSB_REQ_RCPT_INTERFACE) {
             return feature_unit_control(rhport, stage, request);
         }
@@ -420,9 +362,8 @@ static bool ac_control_xfer(uint8_t rhport, uint8_t stage,
 static bool ac_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
                        uint32_t xferred_bytes) {
     // Iso OUT is consumed by direct polling (iso_poll_direct); nothing routes
-    // here in normal operation. Count strays for diagnostics only.
+    // here in normal operation.
     (void)rhport; (void)ep_addr; (void)result; (void)xferred_bytes;
-    s_dbg_set_cnt++;
     return true;
 }
 

@@ -3,8 +3,6 @@
 
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
-#include "hardware/structs/usb_dpram.h"   // live EP hardware state diagnostics
-#include "hardware/structs/usb.h"         // buf_status / sie_status diagnostics
 
 #include "lvgl.h"
 #include "tusb.h"
@@ -20,7 +18,8 @@
 #include "display/axs15231b.h"
 #include "ui/ui_common.h"
 
-// Cross-core audio ring (producer = USB on core0, consumer = analyzer on core1).
+// Cross-core audio ring (producer = USB poll timer on core0, consumer =
+// analyzer on core1).
 AudioRing g_audio_ring;
 
 int main(void) {
@@ -38,17 +37,15 @@ int main(void) {
     lv_indev_t *indev = lv_port_indev_init();
     ui_init(indev);
     printf("[ui] LVGL ready, %dx%d landscape\n", AV_DISP_W, AV_DISP_H);
-    ui_status("ui ready; launching DSP core");
 
     // DSP/FFT runs on core1.
     multicore_launch_core1(analyzer_core1_main);
     printf("[dsp] analyzer core launched\n");
-    ui_status("DSP core up; usb init (board+tusb)...");
 
-    // USB last: enumeration window opens here and the main loop follows immediately.
+    // USB last: enumeration window opens here and the main loop follows.
     usb_audio_init();
-    printf("[usb] UAC2 device initialized (\"1U Visualizer\")\n");
-    ui_status("usb init done; waiting for host...");
+    printf("[usb] UAC1 device initialized (\"1U Visualizer\")\n");
+    ui_status("waiting for host...");
 
     absolute_time_t next_ui = get_absolute_time();
     uint32_t last_frame_log = 0;
@@ -67,8 +64,8 @@ int main(void) {
             next_ui = make_timeout_time_ms(16);
         }
 
-        // Once-per-second heartbeat with analyzer throughput — to UART and the
-        // on-screen status line so progress is visible without a serial adapter.
+        // Once-per-second heartbeat — to UART and the on-screen idle status
+        // line (hidden while streaming).
         if (absolute_time_diff_us(get_absolute_time(), next_log) <= 0) {
             VisualizerState vs;
             vis_acquire(&vs);
@@ -77,39 +74,16 @@ int main(void) {
             uint32_t fps   = vs.frame_id - last_frame_log;
             usb_audio_dbg_t ud;
             usb_audio_debug(&ud);
-            printf("[hb] mounted=%d streaming=%d setitf=%lu alt=%d rxpkts=%lu rxb=%lu frames=%lu (+%lu/s)\n",
+            printf("[hb] mounted=%d streaming=%d rxpkts=%lu rxb=%lu frames=%lu (+%lu/s)\n",
                    (int)mounted, (int)streaming,
-                   (unsigned long)ud.setitf_count, (int)(int8_t)ud.last_alt,
                    (unsigned long)ud.rx_pkts, (unsigned long)ud.rx_bytes,
                    (unsigned long)vs.frame_id, (unsigned long)fps);
 
             char line[64];
-            snprintf(line, sizeof(line), "mnt=%d si=%lu alt=%d rx=%lu/%lub frm=%lu",
-                     (int)mounted, (unsigned long)ud.setitf_count, (int)(int8_t)ud.last_alt,
-                     (unsigned long)ud.rx_pkts, (unsigned long)ud.rx_bytes,
-                     (unsigned long)vs.frame_id);
+            snprintf(line, sizeof(line), "mnt=%d strm=%d rx=%lu frm=%lu",
+                     (int)mounted, (int)streaming,
+                     (unsigned long)ud.rx_pkts, (unsigned long)vs.frame_id);
             ui_status(line);
-
-            // Second line: stream-start trace.
-            //  od  = open()/iso_alloc outcome (0x30 = both ok)
-            //  a1  = # of SET_INTERFACE(alt=1) received
-            //  ah  = last 4 alt values, newest rightmost (0xA0|alt per byte)
-            //  cl  = alt=1 arm outcome (0x33 = alloc+activate+arm all ok)
-            // ec = EP1-OUT endpoint control (bit31 enable, bits27:26 type=01 iso,
-            //      low bits dpram offset). bc = EP1-OUT buffer control
-            //      (bit10 AVAIL armed-waiting, bit15 FULL data-landed,
-            //      bit13 PID1, bits9:0 length). Live hardware truth.
-            // bc = EP1-OUT buffer control (bit15 FULL, bit10 AVAIL, len 9:0);
-            // bs = usb_hw buf_status (pending completion bits, bit3=EP1 OUT);
-            // sie = sie_status (bit31 DATA_SEQ_ERR, b27 RX_TIMEOUT, b26 RX_OVERFLOW, b24 CRC_ERR)
-            char line2[96];
-            snprintf(line2, sizeof(line2),
-                     "a1=%lu cl=%02lx bc=%08lx bs=%08lx sie=%08lx",
-                     (unsigned long)ud.alt1_count, (unsigned long)ud.close_count,
-                     (unsigned long)usb_dpram->ep_buf_ctrl[1].out,
-                     (unsigned long)usb_hw->buf_status,
-                     (unsigned long)usb_hw->sie_status);
-            ui_status2(line2);
 
             last_frame_log = vs.frame_id;
             next_log = make_timeout_time_ms(1000);
