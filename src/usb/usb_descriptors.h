@@ -15,7 +15,9 @@
 // Interface numbers
 #define ITF_NUM_AUDIO_CONTROL     0
 #define ITF_NUM_AUDIO_STREAMING   1
-#define ITF_NUM_TOTAL             2
+#define ITF_NUM_CDC_COMM          2   // CDC serial: host sets the wall clock
+#define ITF_NUM_CDC_DATA          3
+#define ITF_NUM_TOTAL             4
 
 // Audio entity IDs (UAC1 — no clock entity)
 #define UAC1_ENTITY_INPUT_TERMINAL   0x01
@@ -24,6 +26,11 @@
 
 // Isochronous OUT endpoint (host -> device audio data)
 #define EPNUM_AUDIO_OUT   0x01
+
+// CDC endpoints
+#define EPNUM_CDC_NOTIF   0x83
+#define EPNUM_CDC_OUT     0x02
+#define EPNUM_CDC_IN      0x82
 
 // Max packet: 48 kHz * 2 ch * 2 bytes = exactly 192 B/frame. No slack — an
 // adaptive sink consumes at the host's rate, and the working full-speed

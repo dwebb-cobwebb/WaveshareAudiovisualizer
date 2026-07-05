@@ -385,3 +385,34 @@ usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count) {
     *driver_count = 1;
     return &s_uac1_driver;
 }
+
+// ---------------------------------------------------------------------------
+// CDC serial: line-based commands from the host.
+//   "T<epoch>\n" — set the wall clock (local-time epoch seconds).
+// ---------------------------------------------------------------------------
+#include "util/wallclock.h"
+#include <stdlib.h>
+
+void tud_cdc_rx_cb(uint8_t itf) {
+    (void)itf;
+    static char line[32];
+    static uint8_t pos = 0;
+
+    while (tud_cdc_available()) {
+        char c;
+        if (tud_cdc_read(&c, 1) != 1) break;
+        if (c == '\n' || c == '\r') {
+            line[pos] = '\0';
+            if (pos > 1 && line[0] == 'T') {
+                wallclock_set(strtoll(&line[1], NULL, 10));
+                tud_cdc_write_str("OK\n");
+                tud_cdc_write_flush();
+            }
+            pos = 0;
+        } else if (pos < sizeof(line) - 1) {
+            line[pos++] = c;
+        } else {
+            pos = 0;   // overlong line: discard
+        }
+    }
+}

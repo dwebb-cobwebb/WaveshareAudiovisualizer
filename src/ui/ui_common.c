@@ -2,6 +2,7 @@
 #include "ui/mode_producer.h"
 #include "ui/mode_vibe.h"
 #include "ui/mode_lufs.h"
+#include "ui/mode_clock.h"
 #include "dsp/vis_state.h"
 #include "usb/usb_audio.h"
 #include "display/axs15231b.h"
@@ -31,12 +32,15 @@ static void display_set(bool on) {
 
 static void apply_visibility(void) {
     for (int i = 0; i < AV_MODE_COUNT; i++) {
-        bool show = s_streaming && (i == (int)s_mode);
+        // The clock is useful without audio; other modes need a stream.
+        bool show = (i == (int)s_mode) &&
+                    (s_streaming || i == AV_MODE_CLOCK);
         if (show) lv_obj_clear_flag(s_mode_obj[i], LV_OBJ_FLAG_HIDDEN);
         else      lv_obj_add_flag  (s_mode_obj[i], LV_OBJ_FLAG_HIDDEN);
     }
-    // Idle diagnostics (waiting banner + status lines) only when not streaming.
-    if (s_streaming) {
+    // Idle diagnostics (waiting banner + status lines) only when nothing
+    // else is on screen.
+    if (s_streaming || s_mode == AV_MODE_CLOCK) {
         lv_obj_add_flag(s_usb_label, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_status_label, LV_OBJ_FLAG_HIDDEN);
     } else {
@@ -63,8 +67,9 @@ static void gesture_cb(lv_event_t *e) {
         // back.
         lv_indev_wait_release(indev);
         ui_set_mode((AppMode)(s_mode + (dir == LV_DIR_LEFT ? 1 : -1)));
-    } else if (dir == LV_DIR_BOTTOM) {
-        // Swipe down: sleep the display.
+    } else if (dir == LV_DIR_BOTTOM || dir == LV_DIR_TOP) {
+        // Any vertical swipe: sleep the display (direction depends on the
+        // touch axis mapping; accept both so it always works).
         lv_indev_wait_release(indev);
         display_set(false);
     }
@@ -115,6 +120,7 @@ void ui_init(lv_indev_t *indev) {
     s_mode_obj[AV_MODE_PRODUCER] = mode_producer_create(scr);
     s_mode_obj[AV_MODE_VIBE]     = mode_vibe_create(scr);
     s_mode_obj[AV_MODE_LUFS]     = mode_lufs_create(scr);
+    s_mode_obj[AV_MODE_CLOCK]    = mode_clock_create(scr);
 
     // Touch: swipe switches modes, tap cycles. Handlers go on the screen AND
     // each full-screen mode panel (the visible panel receives the input).
@@ -132,7 +138,7 @@ void ui_init(lv_indev_t *indev) {
 }
 
 void ui_status(const char *msg) {
-    if (!s_status_label || s_streaming) return;
+    if (!s_status_label || s_streaming || s_mode == AV_MODE_CLOCK) return;
     lv_label_set_text(s_status_label, msg);
     lv_refr_now(NULL);   // force synchronous flush so it shows even if the next step blocks
 }
@@ -152,13 +158,15 @@ void ui_update(void) {
     if (streaming && !s_was_streaming) display_set(true);
     s_was_streaming = streaming;
     if (s_display_on) {
-        if (streaming) s_last_active_ms = lv_tick_get();
+        // The clock view is a desk clock: it never auto-sleeps.
+        if (streaming || s_mode == AV_MODE_CLOCK) s_last_active_ms = lv_tick_get();
         else if (lv_tick_elaps(s_last_active_ms) > AV_DISPLAY_TIMEOUT_MS) {
             display_set(false);
         }
     }
 
-    if (!s_streaming || !s_display_on) return;
+    if (!s_display_on) return;
+    if (!s_streaming && s_mode != AV_MODE_CLOCK) return;
 
     VisualizerState vs;
     vis_acquire(&vs);
@@ -166,6 +174,7 @@ void ui_update(void) {
         case AV_MODE_PRODUCER: mode_producer_update(&vs); break;
         case AV_MODE_VIBE:     mode_vibe_update(&vs);     break;
         case AV_MODE_LUFS:     mode_lufs_update(&vs);     break;
+        case AV_MODE_CLOCK:    mode_clock_update(&vs);    break;
         default: break;
     }
 }

@@ -2,6 +2,7 @@
 #include "config.h"
 
 #include <math.h>
+#include <stdbool.h>
 #include <string.h>
 
 // ===========================================================================
@@ -130,6 +131,13 @@ static float s_tp_max;              // linear, max of both channels
 
 static volatile uint32_t s_reset_req;
 static uint32_t          s_reset_done;
+
+// Auto-reset on sustained silence (the gap between songs), so each track
+// gets a fresh integrated/LRA/true-peak measurement without user action.
+#define SILENCE_THRESH   1e-4f                      // ~-80 dBFS per sample
+#define SILENCE_FRAMES   (AV_SAMPLE_RATE_HZ * 1u)   // 1 second
+static uint32_t s_quiet_frames;
+static bool     s_auto_reset_armed = true;
 
 static loudness_snapshot_t s_snap;
 
@@ -281,6 +289,20 @@ void loudness_process(const float *interleaved, uint32_t frames) {
     for (uint32_t i = 0; i < frames; i++) {
         float l = interleaved[i * 2 + 0];
         float r = interleaved[i * 2 + 1];
+
+        // Silence tracking: 1 s of near-digital silence (a track gap) resets
+        // the long-term measurements once, re-arming when audio returns.
+        if (fabsf(l) < SILENCE_THRESH && fabsf(r) < SILENCE_THRESH) {
+            if (s_quiet_frames < SILENCE_FRAMES) {
+                if (++s_quiet_frames >= SILENCE_FRAMES && s_auto_reset_armed) {
+                    apply_reset();
+                    s_auto_reset_armed = false;
+                }
+            }
+        } else {
+            s_quiet_frames = 0;
+            s_auto_reset_armed = true;
+        }
 
         // True peak on the raw signal
         s_tp_max = tp_push(0, l, s_tp_max);

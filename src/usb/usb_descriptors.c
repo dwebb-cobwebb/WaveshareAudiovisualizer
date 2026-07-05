@@ -29,7 +29,7 @@ tusb_desc_device_t const desc_device = {
     .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
     .idVendor           = USB_VID,
     .idProduct          = USB_PID,
-    .bcdDevice          = 0x0100,
+    .bcdDevice          = 0x0101,
     .iManufacturer      = 0x01,
     .iProduct           = 0x02,
     .iSerialNumber      = 0x03,
@@ -43,7 +43,8 @@ uint8_t const *tud_descriptor_device_cb(void) {
 // ---------------------------------------------------------------------------
 // Configuration descriptor (UAC1, hand-built)
 // ---------------------------------------------------------------------------
-#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + 8 /*IAD*/ + AUDIO_FUNC_DESC_LEN)
+#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + 8 /*IAD*/ + AUDIO_FUNC_DESC_LEN \
+                           + TUD_CDC_DESC_LEN)
 
 // UAC1 audio class subtype / selector constants used below
 #define AC_HEADER          0x01
@@ -115,6 +116,12 @@ uint8_t const desc_configuration[] = {
     // U-44) declare this; usbaudio.sys programs the rate via this endpoint
     // control and may never commit alt=1 if the descriptor denies it.
     7, TUSB_DESC_CS_ENDPOINT, AS_EP_GENERAL, 0x01, 0x00, U16_TO_U8S_LE(0x0000),
+
+    // --- CDC-ACM serial (own IAD; usbser.sys binds automatically) ---
+    // Used to push wall-clock time from the host (scripts/set_clock.ps1) and
+    // as a general debug channel.
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_COMM, 5, EPNUM_CDC_NOTIF, 8,
+                       EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
 };
 
 _Static_assert(sizeof(desc_configuration) == CONFIG_TOTAL_LEN,
@@ -134,6 +141,7 @@ static char const *string_desc_arr[] = {
     "1U Visualizer",              // 2: Product
     "WS349-0001",                 // 3: Serial
     "1U Visualizer Audio",        // 4: Audio control interface
+    "1U Visualizer Serial",       // 5: CDC (clock-set / debug)
 };
 
 static uint16_t _desc_str[32];

@@ -42,6 +42,7 @@ $c = $c -replace '#define LV_COLOR_16_SWAP\s+\d+', '#define LV_COLOR_16_SWAP 1'
 $c = $c -replace '#define LV_FONT_MONTSERRAT_14\s+\d+', '#define LV_FONT_MONTSERRAT_14 1'
 $c = $c -replace '#define LV_FONT_MONTSERRAT_20\s+\d+', '#define LV_FONT_MONTSERRAT_20 1'
 $c = $c -replace '#define LV_FONT_MONTSERRAT_32\s+\d+', '#define LV_FONT_MONTSERRAT_32 1'
+$c = $c -replace '#define LV_FONT_MONTSERRAT_48\s+\d+', '#define LV_FONT_MONTSERRAT_48 1'
 Set-Content -Path $out -Value $c -NoNewline
 Write-Host "Wrote $out"
 
