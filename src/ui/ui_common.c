@@ -56,29 +56,29 @@ void ui_set_mode(AppMode m) {
     apply_visibility();
 }
 
+// Gesture map (PHYSICAL directions; the touch axes report inverted to LVGL —
+// verified for vertical, assumed for horizontal, so LV_DIR_* below are the
+// opposite of the physical swipe):
+//   swipe right -> next mode (wraps)     swipe left -> previous mode
+//   swipe down  -> display off           swipe up   -> nothing
+//   tap         -> nothing (touch still wakes a sleeping display)
 static void gesture_cb(lv_event_t *e) {
     (void)e;
     lv_indev_t *indev = lv_indev_get_act();
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
     if (!s_display_on) return;   // asleep: pressed_cb handles the wake
-    if (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) {
-        // Swallow the rest of this press: without this, releasing the finger
-        // after a swipe also fires CLICKED, which switches the mode straight
-        // back.
+
+    if (dir == LV_DIR_LEFT) {          // physical swipe RIGHT
         lv_indev_wait_release(indev);
-        ui_set_mode((AppMode)(s_mode + (dir == LV_DIR_LEFT ? 1 : -1)));
-    } else if (dir == LV_DIR_BOTTOM || dir == LV_DIR_TOP) {
-        // Any vertical swipe: sleep the display (direction depends on the
-        // touch axis mapping; accept both so it always works).
+        ui_set_mode((AppMode)(s_mode + 1));
+    } else if (dir == LV_DIR_RIGHT) {  // physical swipe LEFT
+        lv_indev_wait_release(indev);
+        ui_set_mode((AppMode)(s_mode - 1));
+    } else if (dir == LV_DIR_TOP) {    // physical swipe DOWN
         lv_indev_wait_release(indev);
         display_set(false);
     }
-}
-
-static void tap_cb(lv_event_t *e) {
-    (void)e;
-    if (!s_display_on) return;   // wake already handled at press
-    ui_set_mode((AppMode)(s_mode + 1));
+    // LV_DIR_BOTTOM (physical swipe UP): reserved, does nothing.
 }
 
 // Fires on finger-down anywhere: if the display is asleep, wake it and
@@ -122,14 +122,12 @@ void ui_init(lv_indev_t *indev) {
     s_mode_obj[AV_MODE_LUFS]     = mode_lufs_create(scr);
     s_mode_obj[AV_MODE_CLOCK]    = mode_clock_create(scr);
 
-    // Touch: swipe switches modes, tap cycles. Handlers go on the screen AND
+    // Touch: see gesture_cb for the swipe map. Handlers go on the screen AND
     // each full-screen mode panel (the visible panel receives the input).
     lv_obj_add_event_cb(scr, gesture_cb, LV_EVENT_GESTURE, NULL);
-    lv_obj_add_event_cb(scr, tap_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(scr, pressed_cb, LV_EVENT_PRESSED, NULL);
     for (int i = 0; i < AV_MODE_COUNT; i++) {
         lv_obj_add_event_cb(s_mode_obj[i], gesture_cb, LV_EVENT_GESTURE, NULL);
-        lv_obj_add_event_cb(s_mode_obj[i], tap_cb, LV_EVENT_CLICKED, NULL);
         lv_obj_add_event_cb(s_mode_obj[i], pressed_cb, LV_EVENT_PRESSED, NULL);
     }
 
