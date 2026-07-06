@@ -75,6 +75,8 @@ add_executable(${PROJECT_NAME}
     src/ui/mode_vibe.c
     src/ui/mode_lufs.c
     src/ui/mode_tunnel.c
+    src/ui/mode_starfield.c
+    src/ui/mode_plasma.c
     src/ui/mode_clock.c
     src/util/wallclock.c
     src/ui/assets/vu_face.c
@@ -85,6 +87,7 @@ add_executable(${PROJECT_NAME}
     src/ui/assets/seg_dot.c
     src/ui/assets/tunnel_lut.c
     src/ui/assets/tunnel_tex.c
+    src/ui/assets/plasma_dist.c
 )
 
 # Generate qspi.pio.h from the PIO assembly source
