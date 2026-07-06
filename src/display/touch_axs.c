@@ -35,9 +35,26 @@ void touch_init(void) {
     gpio_set_irq_enabled_with_callback(AV_PIN_TP_INT, GPIO_IRQ_EDGE_FALL, true, tp_int_cb);
 }
 
+// One physical press must read as ONE continuous LVGL press. INT pulses
+// arrive per-report (slower than LVGL's poll), so between pulses we keep
+// reporting PRESSED with the cached position for a short hold window;
+// otherwise a single swipe fragments into several micro-presses and fires
+// multiple gestures.
+#define TP_HOLD_MS 80
+static uint16_t s_last_x, s_last_y;
+static uint32_t s_last_evt_ms;
+static bool     s_held;
+
 bool touch_read(uint16_t *x, uint16_t *y) {
-    // No new report since the last read -> not touched (auto-release).
-    if (!s_tp_event) return false;
+    if (!s_tp_event) {
+        // No new report: sustain the press briefly, then release.
+        if (s_held && (to_ms_since_boot(get_absolute_time()) - s_last_evt_ms) < TP_HOLD_MS) {
+            *x = s_last_x; *y = s_last_y;
+            return true;
+        }
+        s_held = false;
+        return false;
+    }
     s_tp_event = false;
 
     // Write 11-byte command, read 32-byte report (from Waveshare Touch.c)
@@ -52,7 +69,7 @@ bool touch_read(uint16_t *x, uint16_t *y) {
     if (i2c_read_blocking (TP_I2C, AV_TP_I2C_ADDR, buf, sizeof(buf), false) < 0) return false;
 
     uint8_t fingers = buf[1];
-    if (fingers == 0) return false;
+    if (fingers == 0) { s_held = false; return false; }
 
     // Raw coords: long axis (0..640), short axis (0..172)
     uint16_t pt_long  = ((buf[2] & 0x0F) << 8) | buf[3];
@@ -65,5 +82,8 @@ bool touch_read(uint16_t *x, uint16_t *y) {
     // If touch appears mirrored: try landscape_x = pt_long, or landscape_y = 171-pt_short.
     *x = (pt_long  < AV_DISP_W) ? (AV_DISP_W - 1 - pt_long)  : 0;
     *y = (pt_short < AV_DISP_H) ? pt_short                    : (AV_DISP_H - 1);
+    s_last_x = *x; s_last_y = *y;
+    s_last_evt_ms = to_ms_since_boot(get_absolute_time());
+    s_held = true;
     return true;
 }

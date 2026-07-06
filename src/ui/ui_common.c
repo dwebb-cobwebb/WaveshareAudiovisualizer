@@ -73,10 +73,10 @@ static void gesture_cb(lv_event_t *e) {
 
     if (dir == LV_DIR_LEFT) {          // physical swipe RIGHT
         lv_indev_wait_release(indev);
-        ui_set_mode((AppMode)(s_mode + 1));
+        ui_set_mode((AppMode)(((int)s_mode + 1) % AV_MODE_COUNT));
     } else if (dir == LV_DIR_RIGHT) {  // physical swipe LEFT
         lv_indev_wait_release(indev);
-        ui_set_mode((AppMode)(s_mode - 1));
+        ui_set_mode((AppMode)(((int)s_mode + AV_MODE_COUNT - 1) % AV_MODE_COUNT));
     } else if (dir == LV_DIR_TOP) {    // physical swipe DOWN
         lv_indev_wait_release(indev);
         display_set(false);

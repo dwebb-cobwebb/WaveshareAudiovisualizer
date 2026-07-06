@@ -7,10 +7,10 @@ extern const lv_img_dsc_t seg_v;
 extern const lv_img_dsc_t seg_dot;
 #define SEG_DIGIT_W  96
 #define SEG_DIGIT_H  164
-#define SEG_THICK    18
+#define SEG_THICK    26
 #define SEG_GAP      2
 #define SEG_PAD      8
-#define SEG_LEN_H    74
-#define SEG_LEN_V    69
-#define SEG_DOT_D    22
+#define SEG_LEN_H    66
+#define SEG_LEN_V    65
+#define SEG_DOT_D    28
 #endif

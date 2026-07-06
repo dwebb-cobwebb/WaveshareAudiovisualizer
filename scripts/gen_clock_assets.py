@@ -21,13 +21,13 @@ SS = 3
 # THICK wide with small inter-segment gaps and mitered (pointed) ends.
 DIGIT_W = 96
 DIGIT_H = 164
-THICK   = 18
+THICK   = 26
 GAP     = 2
 PAD     = 8          # glow bleed padding baked around each segment image
 
 SEG_LEN_H = DIGIT_W - 2 * (THICK // 2) - 2 * GAP          # horizontal length
 SEG_LEN_V = (DIGIT_H - 3 * THICK) // 2 + THICK - 2 * GAP  # vertical length
-DOT_D     = 22
+DOT_D     = 28
 
 LED_CORE = (150, 205, 255)
 LED_BODY = (28, 110, 250)

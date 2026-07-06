@@ -32,6 +32,7 @@ static uint16_t s_pal[256];
 static lv_obj_t *s_root;
 static uint32_t s_last_frame_ms;
 static uint32_t s_rng = 0x2A5F19C3u;
+static float    s_env;   // smoothed energy envelope (0..1)
 
 static inline uint32_t xrand(void) {
     s_rng ^= s_rng << 13;
@@ -69,15 +70,20 @@ void mode_starfield_update(const VisualizerState *vs) {
     float bass = 0.0f;
     for (int b = 0; b < 4; b++) bass += vs->bands[b];
     bass *= 0.25f;
+    // Fast attack, slow release envelope drives how many stars fly.
+    s_env += (energy - s_env) * (energy > s_env ? 0.5f : 0.06f);
 
     // Fade trails.
     for (uint32_t i = 0; i < sizeof(s_buf); i++) {
         s_buf[i] = (uint8_t)((s_buf[i] * FADE_K) >> 8);
     }
 
-    // Advance + plot stars.
-    int speed = 25 + (int)(energy * 150.0f);
-    for (int i = 0; i < NSTARS; i++) {
+    // Advance + plot stars. The active star count scales with the envelope:
+    // empty space in silence, a full warp field when the track kicks off.
+    int speed = 25 + (int)(s_env * 150.0f);
+    int active = (int)((float)NSTARS * s_env * (2.0f - s_env));  // fast ramp-in
+    if (active > NSTARS) active = NSTARS;
+    for (int i = 0; i < active; i++) {
         star_t *s = &s_stars[i];
         s->z = (int16_t)(s->z - speed);
         if (s->z < Z_MIN) { respawn(s, false); continue; }

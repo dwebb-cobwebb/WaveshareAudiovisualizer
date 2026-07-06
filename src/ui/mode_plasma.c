@@ -28,6 +28,7 @@ static lv_obj_t *s_root;
 static uint32_t s_last_frame_ms;
 static uint16_t s_t1, s_t2, s_t3, s_t4;   // 8.8 phase accumulators
 static uint8_t  s_hue;
+static float    s_env;                    // smoothed energy envelope (0..1)
 
 static uint16_t hsv565(uint8_t h, uint8_t sat, uint8_t val) {
     uint8_t region = h / 43;
@@ -66,6 +67,8 @@ void mode_plasma_update(const VisualizerState *vs) {
 
     float energy = 0.5f * (vs->rms_l + vs->rms_r) * 3.0f;
     if (energy > 1.0f) energy = 1.0f;
+    // Fast attack, slow release: silence fades to black, hits light up fast.
+    s_env += (energy - s_env) * (energy > s_env ? 0.55f : 0.10f);
     float bass = 0.0f, mid = 0.0f;
     for (int b = 0; b < 4; b++)  bass += vs->bands[b];
     bass *= 0.25f;
@@ -81,11 +84,12 @@ void mode_plasma_update(const VisualizerState *vs) {
     uint8_t t1 = (uint8_t)(s_t1 >> 8), t2 = (uint8_t)(s_t2 >> 8);
     uint8_t t3 = (uint8_t)(s_t3 >> 8), t4 = (uint8_t)(s_t4 >> 8);
 
-    // Palette: rotating hue over the plasma value, brightness follows RMS.
-    float amp = 0.45f + 0.55f * energy;
+    // Palette: rotating hue over the plasma value. Brightness IS the audio
+    // envelope: pitch black in silence, full blaze at maximum level.
+    float amp = s_env * s_env * (3.0f - 2.0f * s_env)   // smoothstep punch
+                * 255.0f;
     for (int v = 0; v < 256; v++) {
-        uint8_t val = (uint8_t)((40.0f + 215.0f * (float)s_sin[(v * 2) & 255]
-                                 * (1.0f / 255.0f)) * amp);
+        uint8_t val = (uint8_t)((float)s_sin[(v * 2) & 255] * (1.0f / 255.0f) * amp);
         s_pal[v] = hsv565((uint8_t)(s_hue + v / 2), 235, val);
     }
 
