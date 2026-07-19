@@ -8,7 +8,7 @@ meters, loudness metering, and a few eye-candy modes — no host-side software
 required.
 
 ## Hardware
-
+I used: [Waveshare RP2350 3.49inch Touch LCD development board](https://www.waveshare.com/rp2350-touch-lcd-3.49.htm) consisting of:
 - **Board:** [Waveshare RP2350-Touch-LCD-3.49](https://www.waveshare.com/rp2350-touch-lcd-3.49.htm)
   (RP2350B, QFN-80 — the variant with extra GPIO; *not* the plain RP2350A "Pico 2").
 - **Display:** AXS15231B QSPI panel, 172×640 native (portrait); this firmware
