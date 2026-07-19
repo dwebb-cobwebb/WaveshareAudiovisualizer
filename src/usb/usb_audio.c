@@ -389,8 +389,12 @@ usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count) {
 // ---------------------------------------------------------------------------
 // CDC serial: line-based commands from the host.
 //   "T<epoch>\n" — set the wall clock (local-time epoch seconds).
+//   "BOOT\n"     — reboot into the ROM UF2 bootloader (BOOTSEL) so new
+//                  firmware can be flashed without touching the button
+//                  (scripts/reboot_bootsel.ps1).
 // ---------------------------------------------------------------------------
 #include "util/wallclock.h"
+#include "pico/bootrom.h"
 #include <stdlib.h>
 
 void tud_cdc_rx_cb(uint8_t itf) {
@@ -407,6 +411,12 @@ void tud_cdc_rx_cb(uint8_t itf) {
                 wallclock_set(strtoll(&line[1], NULL, 10));
                 tud_cdc_write_str("OK\n");
                 tud_cdc_write_flush();
+            } else if (strcmp(line, "BOOT") == 0) {
+                tud_cdc_write_str("BOOTSEL\n");
+                tud_cdc_write_flush();
+                // Detaches USB and re-enumerates as the RP2350 UF2 bootloader;
+                // does not return.
+                reset_usb_boot(0, 0);
             }
             pos = 0;
         } else if (pos < sizeof(line) - 1) {

@@ -80,7 +80,9 @@ void mode_starfield_update(const VisualizerState *vs) {
 
     // Advance + plot stars. The active star count scales with the envelope:
     // empty space in silence, a full warp field when the track kicks off.
-    int speed = 25 + (int)(s_env * 150.0f);
+    // Speed follows env^2 so the field mostly drifts and only hits full warp
+    // on genuinely loud passages.
+    int speed = 3 + (int)(s_env * s_env * 40.0f);
     int active = (int)((float)NSTARS * s_env * (2.0f - s_env));  // fast ramp-in
     if (active > NSTARS) active = NSTARS;
     for (int i = 0; i < active; i++) {
