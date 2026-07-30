@@ -9,7 +9,7 @@
 // LUFS view: EBU R128 loudness metering.
 //
 // Left: momentary (M) and short-term (S) horizontal bar meters on a
-// -36..0 LUFS scale with the -14 LUFS streaming target marked. Right:
+// -36..0 LUFS scale with the -12 LUFS streaming target marked. Right:
 // integrated loudness (big), loudness range and max true peak. Long-press
 // anywhere on the view resets integrated/LRA/true-peak.
 // ===========================================================================
@@ -25,7 +25,7 @@
 #define TICKS_Y     (BAR_S_Y + BAR_H + 6)
 
 // Loudness zones (LUFS)
-#define TARGET_LUFS   (-14.0f)   // streaming target marker
+#define TARGET_LUFS   (-12.0f)   // streaming target marker
 #define HOT_LUFS      (-9.0f)
 
 // Right panel
@@ -135,7 +135,7 @@ lv_obj_t *mode_lufs_create(lv_obj_t *parent) {
         lv_obj_set_x(l, x - lv_obj_get_width(l) / 2);
     }
 
-    // Target marker line (-14 LUFS) across both bars.
+    // Target marker line (-12 LUFS) across both bars.
     lv_obj_t *tgt = lv_obj_create(root);
     plain(tgt, lv_color_make(80, 200, 110));
     lv_obj_set_size(tgt, 2, (BAR_S_Y + BAR_H) - BAR_M_Y);

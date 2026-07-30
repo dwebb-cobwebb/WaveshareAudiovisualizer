@@ -67,25 +67,24 @@ int main(void) {
         // Once-per-second heartbeat — to UART and the on-screen idle status
         // line (hidden while streaming).
         if (absolute_time_diff_us(get_absolute_time(), next_log) <= 0) {
-            VisualizerState vs;
-            vis_acquire(&vs);
+            uint32_t frame_id = vis_frame_id();
             bool mounted   = tud_mounted();
             bool streaming = usb_audio_streaming();
-            uint32_t fps   = vs.frame_id - last_frame_log;
+            uint32_t fps   = frame_id - last_frame_log;
             usb_audio_dbg_t ud;
             usb_audio_debug(&ud);
             printf("[hb] mounted=%d streaming=%d rxpkts=%lu rxb=%lu frames=%lu (+%lu/s)\n",
                    (int)mounted, (int)streaming,
                    (unsigned long)ud.rx_pkts, (unsigned long)ud.rx_bytes,
-                   (unsigned long)vs.frame_id, (unsigned long)fps);
+                   (unsigned long)frame_id, (unsigned long)fps);
 
             char line[64];
             snprintf(line, sizeof(line), "mnt=%d strm=%d rx=%lu frm=%lu",
                      (int)mounted, (int)streaming,
-                     (unsigned long)ud.rx_pkts, (unsigned long)vs.frame_id);
+                     (unsigned long)ud.rx_pkts, (unsigned long)frame_id);
             ui_status(line);
 
-            last_frame_log = vs.frame_id;
+            last_frame_log = frame_id;
             next_log = make_timeout_time_ms(1000);
         }
     }

@@ -29,6 +29,19 @@ typedef struct {
     bool  clip_l;                // clip-hold latched (>= 0 dBFS within hold window)
     bool  clip_r;
 
+    // Oscilloscope trace: min/max sample amplitude per column over the most
+    // recent analysis window (see analyzer.c), quantized to int8
+    // (-127..127 == -1.0..+1.0 FS). One column per landscape pixel column.
+    int8_t scope_min_l[AV_SCOPE_COLS];
+    int8_t scope_max_l[AV_SCOPE_COLS];
+    int8_t scope_min_r[AV_SCOPE_COLS];
+    int8_t scope_max_r[AV_SCOPE_COLS];
+
+    // Goniometer: raw (untriggered) sample pairs spread evenly across the
+    // analysis window, quantized to int8 (-127..127 == -1.0..+1.0 FS).
+    int8_t gonio_l[AV_GONIO_POINTS];
+    int8_t gonio_r[AV_GONIO_POINTS];
+
     uint32_t frame_id;           // increments each published frame
 } VisualizerState;
 
@@ -38,5 +51,10 @@ typedef struct {
 void vis_state_init(void);
 void vis_publish(const VisualizerState *s);
 void vis_acquire(VisualizerState *out);
+
+// Lightweight accessor for callers that only need the frame counter (e.g. the
+// once-a-second heartbeat) — avoids a full VisualizerState-sized static copy
+// just to read one field.
+uint32_t vis_frame_id(void);
 
 #endif // AV_VIS_STATE_H

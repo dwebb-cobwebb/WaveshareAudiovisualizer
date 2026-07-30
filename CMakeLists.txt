@@ -74,6 +74,8 @@ add_executable(${PROJECT_NAME}
     src/ui/mode_producer.c
     src/ui/mode_vibe.c
     src/ui/mode_lufs.c
+    src/ui/mode_oscope.c
+    src/ui/mode_goniometer.c
     src/ui/mode_tunnel.c
     src/ui/mode_starfield.c
     src/ui/mode_plasma.c

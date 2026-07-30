@@ -16,6 +16,14 @@
 #define AV_BAND_FREQ_LOW    20.0f
 #define AV_BAND_FREQ_HIGH   20000.0f
 
+// Oscilloscope: per-analysis-window min/max envelope, one column per landscape
+// pixel column (matches AV_DISP_W's half-res scope buffer, see mode_oscope.c).
+#define AV_SCOPE_COLS       320
+
+// Goniometer: raw (untriggered) L/R sample pairs spread evenly across the
+// analysis window, for the stereo (M/S) scatter plot (see mode_goniometer.c).
+#define AV_GONIO_POINTS     192
+
 // Smoothing / ballistics (per analysis frame, ~ AV_SAMPLE_RATE/AV_FFT_SIZE Hz)
 #define AV_BAND_ATTACK      0.60f   // 0..1, higher = snappier rise
 #define AV_BAND_DECAY       0.12f   // 0..1, higher = faster fall

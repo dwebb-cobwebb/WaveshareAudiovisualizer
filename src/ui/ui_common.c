@@ -2,6 +2,8 @@
 #include "ui/mode_producer.h"
 #include "ui/mode_vibe.h"
 #include "ui/mode_lufs.h"
+#include "ui/mode_oscope.h"
+#include "ui/mode_goniometer.h"
 #include "ui/mode_tunnel.h"
 #include "ui/mode_starfield.h"
 #include "ui/mode_plasma.h"
@@ -25,6 +27,12 @@ static bool      s_streaming = false;
 static bool     s_display_on = true;
 static bool     s_was_streaming = false;
 static uint32_t s_last_active_ms = 0;
+
+// Kept static rather than a local in ui_update(), same reasoning as
+// analyzer.c's s_vs_scratch: this struct has grown large enough with the
+// oscilloscope's trace arrays that a stack copy held live through a nested
+// mode_xxx_update() call risked overflowing core0's own dedicated 4K stack.
+static VisualizerState s_vs;
 
 static void display_set(bool on) {
     if (on == s_display_on) return;
@@ -123,6 +131,8 @@ void ui_init(lv_indev_t *indev) {
     s_mode_obj[AV_MODE_PRODUCER] = mode_producer_create(scr);
     s_mode_obj[AV_MODE_VIBE]     = mode_vibe_create(scr);
     s_mode_obj[AV_MODE_LUFS]     = mode_lufs_create(scr);
+    s_mode_obj[AV_MODE_OSCOPE]   = mode_oscope_create(scr);
+    s_mode_obj[AV_MODE_GONIOMETER]=mode_goniometer_create(scr);
     s_mode_obj[AV_MODE_TUNNEL]   = mode_tunnel_create(scr);
     s_mode_obj[AV_MODE_STARFIELD]= mode_starfield_create(scr);
     s_mode_obj[AV_MODE_PLASMA]   = mode_plasma_create(scr);
@@ -172,16 +182,17 @@ void ui_update(void) {
     if (!s_display_on) return;
     if (!s_streaming && s_mode != AV_MODE_CLOCK) return;
 
-    VisualizerState vs;
-    vis_acquire(&vs);
+    vis_acquire(&s_vs);
     switch (s_mode) {
-        case AV_MODE_PRODUCER: mode_producer_update(&vs); break;
-        case AV_MODE_VIBE:     mode_vibe_update(&vs);     break;
-        case AV_MODE_LUFS:     mode_lufs_update(&vs);     break;
-        case AV_MODE_TUNNEL:   mode_tunnel_update(&vs);   break;
-        case AV_MODE_STARFIELD:mode_starfield_update(&vs);break;
-        case AV_MODE_PLASMA:   mode_plasma_update(&vs);   break;
-        case AV_MODE_CLOCK:    mode_clock_update(&vs);    break;
+        case AV_MODE_PRODUCER: mode_producer_update(&s_vs); break;
+        case AV_MODE_VIBE:     mode_vibe_update(&s_vs);     break;
+        case AV_MODE_LUFS:     mode_lufs_update(&s_vs);     break;
+        case AV_MODE_OSCOPE:   mode_oscope_update(&s_vs);   break;
+        case AV_MODE_GONIOMETER:mode_goniometer_update(&s_vs);break;
+        case AV_MODE_TUNNEL:   mode_tunnel_update(&s_vs);   break;
+        case AV_MODE_STARFIELD:mode_starfield_update(&s_vs);break;
+        case AV_MODE_PLASMA:   mode_plasma_update(&s_vs);   break;
+        case AV_MODE_CLOCK:    mode_clock_update(&s_vs);    break;
         default: break;
     }
 }

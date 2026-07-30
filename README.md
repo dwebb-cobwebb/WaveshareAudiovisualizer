@@ -38,6 +38,8 @@ Modes:
 | Producer | 31-band FFT spectrum, peak-hold, stereo level meters, clip indicator, phase bar |
 | Vibe | Photorealistic analogue-style stereo VU meters |
 | LUFS | EBU R128 loudness metering (Momentary/Short/Integrated, LRA, true peak) |
+| Oscilloscope | Dual-trace stereo waveform over a graticule (min/max envelope per column, antialiased), with a rising-edge trigger to hold periodic signals still and a tap-to-cycle phosphor trail (5 levels, none to loads) |
+| Goniometer | Stereo M/S vectorscope — mono content draws a vertical line, out-of-phase content draws a horizontal line — with a density-weighted phosphor trail (tap to cycle) |
 | Tunnel | Audio-reactive infinite neon tunnel (eye candy) |
 | Starfield | Warp-speed starfield with motion trails, audio-reactive |
 | Plasma | Audio-reactive plasma effect |

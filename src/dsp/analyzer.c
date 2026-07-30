@@ -16,6 +16,15 @@
 #define CLIP_THRESH     (0.997f)                   // ~ -0.03 dBFS
 #define MAG_GAIN        (4.0f / (float)AV_FFT_SIZE) // window+rfft normalization
 
+// Oscilloscope trigger search window and fixed post-trigger display span (see
+// scope_find_trigger). The span is fixed rather than "whatever is left after
+// the trigger" so the timebase (samples/column) can't drift frame to frame —
+// a variable span pinned the trigger sample but let everything to its right
+// stretch/squeeze differently every frame. Span <= search limit guarantees
+// enough samples remain regardless of where the trigger lands.
+#define SCOPE_TRIGGER_SEARCH   (AV_FFT_SIZE / 2)
+#define SCOPE_SPAN             (AV_FFT_SIZE / 2)
+
 // ---------------------------------------------------------------------------
 // State (DSP core only)
 // ---------------------------------------------------------------------------
@@ -32,10 +41,15 @@ static int   s_clip_hold_l;
 static int   s_clip_hold_r;
 static uint32_t s_frame_id;
 
-// Scratch (kept static to avoid large stack frames)
+// Scratch (kept static to avoid large stack frames — core1's stack is a
+// dedicated 4K SCRATCH bank, and VisualizerState is large enough with the
+// oscilloscope trace arrays that leaving it and `mag` on the stack risked
+// overflowing that bank).
 static float s_in_mono[AV_FFT_SIZE];
 static float s_fft_out[AV_FFT_SIZE];
 static float s_stereo[AV_FFT_SIZE * AV_CHANNELS];
+static VisualizerState s_vs_scratch;
+static float s_mag[AV_FFT_BINS];
 
 // ---------------------------------------------------------------------------
 // Double buffer for VisualizerState (vis_state.h API)
@@ -59,6 +73,10 @@ void vis_acquire(VisualizerState *out) {
     uint8_t f = s_vs_front;
     __asm volatile("" ::: "memory");
     *out = s_vs[f];
+}
+
+uint32_t vis_frame_id(void) {
+    return s_vs[s_vs_front].frame_id;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +131,29 @@ static float mag_to_norm(float mag) {
     return n;
 }
 
+static inline int8_t scope_quantize(float v) {
+    float s = v * 127.0f;
+    if (s > 127.0f) s = 127.0f;
+    if (s < -127.0f) s = -127.0f;
+    return (int8_t)s;
+}
+
+// Oscilloscope trigger: first rising zero-crossing of the L+R mono mix,
+// searched over the first half of the window so at least half a window of
+// data remains to display afterwards. Falls back to 0 (free-run) if the
+// signal never crosses in that span — cheap and good enough for a musical
+// scope; it isn't a lab instrument with deep pre-trigger memory.
+static int scope_find_trigger(const float *stereo) {
+    const int limit = SCOPE_TRIGGER_SEARCH;
+    float prev = 0.5f * (stereo[0] + stereo[1]);
+    for (int n = 1; n <= limit; n++) {
+        float cur = 0.5f * (stereo[n * 2] + stereo[n * 2 + 1]);
+        if (prev < 0.0f && cur >= 0.0f) return n;
+        prev = cur;
+    }
+    return 0;
+}
+
 bool analyzer_process(AudioRing *ring) {
     if (ring_available(ring) < AV_FFT_SIZE) return false;
 
@@ -126,6 +167,19 @@ bool analyzer_process(AudioRing *ring) {
     // Time-domain stats + windowed mono mix.
     float sum_l2 = 0.f, sum_r2 = 0.f, sum_lr = 0.f;
     float peak_l = 0.f, peak_r = 0.f;
+
+    // Oscilloscope: min/max envelope per display column, flushed as the
+    // sample index crosses into the next column's span. Trigger discards
+    // samples before the first rising zero-crossing so periodic/tonal
+    // content holds still instead of sliding frame to frame; a FIXED
+    // SCOPE_SPAN (not "whatever is left") is remapped across AV_SCOPE_COLS
+    // columns so the timebase can't drift between frames.
+    VisualizerState *vsp = &s_vs_scratch;
+    int t0 = scope_find_trigger(s_stereo);
+    int col = 0;
+    float col_min_l = 1e9f, col_max_l = -1e9f;
+    float col_min_r = 1e9f, col_max_r = -1e9f;
+
     for (int n = 0; n < AV_FFT_SIZE; n++) {
         float l = s_stereo[n * 2 + 0];
         float r = s_stereo[n * 2 + 1];
@@ -136,25 +190,55 @@ bool analyzer_process(AudioRing *ring) {
         if (al > peak_l) peak_l = al;
         if (ar > peak_r) peak_r = ar;
         s_in_mono[n] = 0.5f * (l + r) * s_window[n];
+
+        int rel = n - t0;
+        if (rel < 0 || rel >= SCOPE_SPAN) continue;
+        int c = (rel * AV_SCOPE_COLS) / SCOPE_SPAN;
+        if (c != col) {
+            vsp->scope_min_l[col] = scope_quantize(col_min_l);
+            vsp->scope_max_l[col] = scope_quantize(col_max_l);
+            vsp->scope_min_r[col] = scope_quantize(col_min_r);
+            vsp->scope_max_r[col] = scope_quantize(col_max_r);
+            col = c;
+            col_min_l = col_max_l = l;
+            col_min_r = col_max_r = r;
+        } else {
+            if (l < col_min_l) col_min_l = l;
+            if (l > col_max_l) col_max_l = l;
+            if (r < col_min_r) col_min_r = r;
+            if (r > col_max_r) col_max_r = r;
+        }
+    }
+    vsp->scope_min_l[col] = scope_quantize(col_min_l);
+    vsp->scope_max_l[col] = scope_quantize(col_max_l);
+    vsp->scope_min_r[col] = scope_quantize(col_min_r);
+    vsp->scope_max_r[col] = scope_quantize(col_max_r);
+
+    // Goniometer: raw (untriggered) sample pairs spread evenly across the
+    // whole window — a stereo scatter plot wants the full spatial
+    // distribution, not a phase-aligned slice, so no trigger is applied here.
+    // STEP 2: written every frame now, but nothing reads gonio_l/gonio_r yet.
+    for (int i = 0; i < AV_GONIO_POINTS; i++) {
+        int n = (i * AV_FFT_SIZE) / AV_GONIO_POINTS;
+        vsp->gonio_l[i] = scope_quantize(s_stereo[n * 2 + 0]);
+        vsp->gonio_r[i] = scope_quantize(s_stereo[n * 2 + 1]);
     }
 
     // FFT -> magnitude -> bands.
     arm_rfft_fast_f32(&s_fft, s_in_mono, s_fft_out, 0);
-    float mag[AV_FFT_BINS];
-    mag[0] = fabsf(s_fft_out[0]);                  // DC (bin 0 stored in out[0])
+    s_mag[0] = fabsf(s_fft_out[0]);                 // DC (bin 0 stored in out[0])
     for (int k = 1; k < AV_FFT_BINS; k++) {
         float re = s_fft_out[2 * k];
         float im = s_fft_out[2 * k + 1];
-        mag[k] = sqrtf(re * re + im * im);
+        s_mag[k] = sqrtf(re * re + im * im);
     }
 
     const int hold_frames = (int)(ANALYSIS_FPS * (AV_PEAK_HOLD_MS / 1000.0f));
 
-    VisualizerState vs;
     for (int b = 0; b < AV_NUM_BANDS; b++) {
         float acc = 0.f;
         int cnt = 0;
-        for (int k = s_band_lo[b]; k <= s_band_hi[b]; k++) { acc += mag[k]; cnt++; }
+        for (int k = s_band_lo[b]; k <= s_band_hi[b]; k++) { acc += s_mag[k]; cnt++; }
         float band = mag_to_norm(cnt > 0 ? acc / cnt : 0.f);
 
         // Attack/decay ballistics.
@@ -162,7 +246,7 @@ bool analyzer_process(AudioRing *ring) {
         float coeff = (band > prev) ? AV_BAND_ATTACK : AV_BAND_DECAY;
         prev += (band - prev) * coeff;
         s_band_smooth[b] = prev;
-        vs.bands[b] = prev;
+        vsp->bands[b] = prev;
 
         // Per-band peak hold.
         if (prev >= s_band_peak[b]) {
@@ -173,34 +257,34 @@ bool analyzer_process(AudioRing *ring) {
         } else {
             s_band_peak[b] *= (1.0f - AV_BAND_DECAY);
         }
-        vs.band_peak[b] = s_band_peak[b];
+        vsp->band_peak[b] = s_band_peak[b];
     }
 
-    vs.rms_l = sqrtf(sum_l2 / AV_FFT_SIZE);
-    vs.rms_r = sqrtf(sum_r2 / AV_FFT_SIZE);
-    vs.peak_l = peak_l;
-    vs.peak_r = peak_r;
+    vsp->rms_l = sqrtf(sum_l2 / AV_FFT_SIZE);
+    vsp->rms_r = sqrtf(sum_r2 / AV_FFT_SIZE);
+    vsp->peak_l = peak_l;
+    vsp->peak_r = peak_r;
 
     float denom = sqrtf(sum_l2 * sum_r2);
-    vs.correlation = (denom > 1e-9f) ? (sum_lr / denom) : 0.0f;
+    vsp->correlation = (denom > 1e-9f) ? (sum_lr / denom) : 0.0f;
 
     loudness_snapshot_t lu;
     loudness_get(&lu);
-    vs.lufs_m = lu.lufs_m;
-    vs.lufs_s = lu.lufs_s;
-    vs.lufs_i = lu.lufs_i;
-    vs.lra    = lu.lra;
-    vs.tp_db  = lu.tp_db;
+    vsp->lufs_m = lu.lufs_m;
+    vsp->lufs_s = lu.lufs_s;
+    vsp->lufs_i = lu.lufs_i;
+    vsp->lra    = lu.lra;
+    vsp->tp_db  = lu.tp_db;
 
     if (peak_l >= CLIP_THRESH) s_clip_hold_l = hold_frames;
     else if (s_clip_hold_l > 0) s_clip_hold_l--;
     if (peak_r >= CLIP_THRESH) s_clip_hold_r = hold_frames;
     else if (s_clip_hold_r > 0) s_clip_hold_r--;
-    vs.clip_l = (s_clip_hold_l > 0);
-    vs.clip_r = (s_clip_hold_r > 0);
+    vsp->clip_l = (s_clip_hold_l > 0);
+    vsp->clip_r = (s_clip_hold_r > 0);
 
-    vs.frame_id = ++s_frame_id;
-    vis_publish(&vs);
+    vsp->frame_id = ++s_frame_id;
+    vis_publish(vsp);
     return true;
 }
 
