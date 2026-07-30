@@ -1,5 +1,6 @@
 #include "ui/ui_common.h"
 #include "ui/mode_producer.h"
+#include "ui/mode_spectrum.h"
 #include "ui/mode_vibe.h"
 #include "ui/mode_lufs.h"
 #include "ui/mode_oscope.h"
@@ -129,6 +130,7 @@ void ui_init(lv_indev_t *indev) {
 
     // Visualizer modes (hidden until streaming).
     s_mode_obj[AV_MODE_PRODUCER] = mode_producer_create(scr);
+    s_mode_obj[AV_MODE_SPECTRUM] = mode_spectrum_create(scr);
     s_mode_obj[AV_MODE_VIBE]     = mode_vibe_create(scr);
     s_mode_obj[AV_MODE_LUFS]     = mode_lufs_create(scr);
     s_mode_obj[AV_MODE_OSCOPE]   = mode_oscope_create(scr);
@@ -185,6 +187,7 @@ void ui_update(void) {
     vis_acquire(&s_vs);
     switch (s_mode) {
         case AV_MODE_PRODUCER: mode_producer_update(&s_vs); break;
+        case AV_MODE_SPECTRUM: mode_spectrum_update(&s_vs); break;
         case AV_MODE_VIBE:     mode_vibe_update(&s_vs);     break;
         case AV_MODE_LUFS:     mode_lufs_update(&s_vs);     break;
         case AV_MODE_OSCOPE:   mode_oscope_update(&s_vs);   break;

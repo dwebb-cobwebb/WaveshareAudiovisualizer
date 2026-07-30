@@ -72,6 +72,7 @@ add_executable(${PROJECT_NAME}
     src/display/lv_port_indev.c
     src/ui/ui_common.c
     src/ui/mode_producer.c
+    src/ui/mode_spectrum.c
     src/ui/mode_vibe.c
     src/ui/mode_lufs.c
     src/ui/mode_oscope.c

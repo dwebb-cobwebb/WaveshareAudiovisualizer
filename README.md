@@ -36,6 +36,7 @@ Modes:
 | Mode | Description |
 |---|---|
 | Producer | 31-band FFT spectrum, peak-hold, stereo level meters, clip indicator, phase bar |
+| Spectrum | Smooth filled log-frequency curve with a bold peak-hold line, FabFilter Pro-Q style (same band data as Producer, rendered as a continuous curve instead of bars), color-coded by mixing-relevant frequency zone (sub-bass/bass/low-mids/mids/high-mids/highs); tap to drop a marker with a live frequency readout, long-press to clear it |
 | Vibe | Photorealistic analogue-style stereo VU meters |
 | LUFS | EBU R128 loudness metering (Momentary/Short/Integrated, LRA, true peak) |
 | Oscilloscope | Dual-trace stereo waveform over a graticule (min/max envelope per column, antialiased), with a rising-edge trigger to hold periodic signals still and a tap-to-cycle phosphor trail (5 levels, none to loads) |
